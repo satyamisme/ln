@@ -155,7 +155,7 @@ programming in Python.
 - **Advanced Error Handling:** The bot can handle interruptions in compatibility (e.g., different video codecs, missing audio tracks) by processing files in smaller batches or individually.
 - **Dynamic UI:** All video tasks use a single, editable status message that updates through all stages of the process (Extracting, Analyzing, Processing, Uploading).
 - **Detailed Stream Analysis:** A new "Analyzing Streams" card provides a user-friendly view of which tracks will be kept or removed, including metadata like resolution, bitrate, and channel layout.
-- **Enhanced Stream Selection:** New logic to keep all audio tracks of a priority language (e.g., Telugu) if present, and to always preserve embedded attachments like cover art.
+- **Enhanced Stream Selection:** New logic to keep all audio tracks of a priority language (e.g., Telugu) if present, and to always preserve embedded attachments like cover art. Use the `-vt` flag to enable video processing.
 
 </details>
 

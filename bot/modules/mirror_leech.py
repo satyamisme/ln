@@ -107,11 +107,13 @@ class Mirror(TaskListener):
             "-cv": "",
             "-ns": "",
             "-tl": "",
+            "-vt": False,
             "-ff": set(),
         }
 
         arg_parser(input_list[1:], args)
 
+        self.vid_mode = args["-vt"]
         self.select = args["-s"]
         self.seed = args["-d"]
         self.name = args["-n"]
