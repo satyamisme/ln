@@ -24,12 +24,35 @@ class ExtraSelect:
             LOGGER.error(f"Failed to send message: {e}")
             self.is_cancelled = True
 
-    def _format_stream_name(self, stream):
-        codec_type = stream.get('codec_type', 'unknown').title()
-        codec_name = stream.get('codec_name', 'Unknown')
-        lang = stream.get('tags', {}).get('language', 'Unknown').upper()
-        resolution = f" ({stream.get('height', '')}p)" if stream.get('codec_type') == 'video' and stream.get('height') else ''
-        return f"{codec_type} ~ {codec_name} ({lang}){resolution}"
+    def _format_stream_details(self, stream):
+        codec_type = stream.get('codec_type', 'unknown')
+
+        if codec_type == 'video':
+            codec_name = stream.get('codec_name', 'Unknown')
+            height = stream.get('height')
+            resolution = f"{height}p" if height else "Unknown Resolution"
+            bitrate = stream.get('bit_rate')
+            bitrate_str = f", {int(bitrate) // 1000} kbps" if bitrate else ""
+            return f"{codec_name.upper()}, {resolution}{bitrate_str}"
+
+        elif codec_type == 'audio':
+            codec_name = stream.get('codec_name', 'Unknown')
+            lang = stream.get('tags', {}).get('language', 'und').upper()
+            channels = stream.get('channel_layout', 'N/A')
+            bitrate = stream.get('bit_rate')
+            bitrate_str = f", {int(bitrate) // 1000} kbps" if bitrate else ""
+            return f"{codec_name.upper()}, {lang}, {channels}{bitrate_str}"
+
+        elif codec_type == 'subtitle':
+            codec_name = stream.get('codec_name', 'Unknown')
+            lang = stream.get('tags', {}).get('language', 'und').upper()
+            return f"{codec_name.upper()}, {lang}"
+
+        elif stream.get('disposition', {}).get('attached_pic'):
+            return "Cover Art (Attached Picture)"
+
+        else:
+            return f"{codec_type.title()} Stream"
 
     def _is_language_match(self, lang, language_list):
         """Check if a language tag matches any in the given list."""
@@ -39,102 +62,89 @@ class ExtraSelect:
         return any(tag.strip().lower() in lang for tag in language_list if isinstance(tag, str))
 
     def _get_language_lists(self):
-        """Load supported and always-remove languages from config_dict with fallbacks."""
         supported = config_dict.get('SUPPORTED_LANGUAGES', 'tel,te,తెలుగు,hin,hi').split(',')
         if not supported or not any(isinstance(tag, str) for tag in supported):
             LOGGER.warning("SUPPORTED_LANGUAGES invalid or missing, using default: tel,te,తెలుగు,hin,hi")
             supported = ['tel', 'te', 'తెలుగు', 'hin', 'hi']
 
-        always_remove = config_dict.get('ALWAYS_REMOVE_LANGUAGES', 'tam,ta,தமிழ்,mal,ml,മലയാളം').split(',')
-        if not always_remove or not any(isinstance(tag, str) for tag in always_remove):
-            LOGGER.warning("ALWAYS_REMOVE_LANGUAGES invalid or missing, using default: tam,ta,தமிழ்,mal,ml,മലയാളം")
-            always_remove = ['tam', 'ta', 'தமிழ்', 'mal', 'ml', 'മലയാളം']
-
-        # Split supported into Telugu and Hindi for priority
         telugu_tags = [tag for tag in supported if tag in ['tel', 'te', 'తెలుగు']]
         hindi_tags = [tag for tag in supported if tag in ['hin', 'hi']]
-        return telugu_tags, hindi_tags, always_remove
+        return telugu_tags, hindi_tags
 
     async def streams_select(self, streams=None):
         if 'streams' not in self.executor.data:
-            if not streams or not isinstance(streams, list):
-                LOGGER.warning(f"No valid streams provided for {self.executor.mode}")
+            if not streams:
                 self.executor.data = {'streams': {}, 'streams_to_remove': []}
-                return f"No streams found in file for {self.executor.mode}."
-            LOGGER.info(f"Initializing stream data for {self.executor.mode}")
+                return "No streams found in file."
+
             self.executor.data = {'streams': {}, 'streams_to_remove': []}
             for stream in streams:
-                if isinstance(stream, dict) and 'codec_type' in stream:
-                    index = stream['index']
-                    self.executor.data['streams'][index] = stream
-                    self.executor.data['streams'][index]['info'] = self._format_stream_name(stream)
+                index = stream['index']
+                self.executor.data['streams'][index] = stream
+                self.executor.data['streams'][index]['details'] = self._format_stream_details(stream)
 
         streams_dict = self.executor.data['streams']
-        text = (f'<b>{VID_MODE[self.executor.mode].upper()} ~ {self._listener.tag}</b>\n'
-                f'<code>{self.executor.name}</code>\n'
-                f'Size: <b>{get_readable_file_size(self.executor.size)}</b>\n'
-                f'\n<b>Streams:</b>\n')
 
-        if not streams_dict:
-            text += "No streams available to process.\n"
-            LOGGER.warning(f"No streams found in data for {self.executor.mode}")
-        else:
-            telugu_tags, hindi_tags, always_remove = self._get_language_lists()
+        kept_video = []
+        kept_audio = []
+        kept_attachments = []
+        removed_audio = []
+        removed_subtitle = []
 
-            has_telugu = any(
-                stream.get('codec_type') == 'audio' and self._is_language_match(stream.get('tags', {}).get('language', ''), telugu_tags)
-                for stream in streams_dict.values()
-            )
-            has_hindi = any(
-                stream.get('codec_type') == 'audio' and self._is_language_match(stream.get('tags', {}).get('language', ''), hindi_tags)
-                for stream in streams_dict.values()
-            )
+        telugu_tags, hindi_tags = self._get_language_lists()
 
-            for key, value in streams_dict.items():
-                codec_type = value.get('codec_type', 'unknown')
-                lang = value.get('tags', {}).get('language', '')
-                is_metadata = codec_type == 'data' or (codec_type == 'unknown' and 'metadata' in value.get('tags', {}).get('title', '').lower())
+        has_telugu = any(s.get('codec_type') == 'audio' and self._is_language_match(s.get('tags', {}).get('language'), telugu_tags) for s in streams_dict.values())
+        has_hindi = any(s.get('codec_type') == 'audio' and self._is_language_match(s.get('tags', {}).get('language'), hindi_tags) for s in streams_dict.values())
 
-                if codec_type == 'subtitle':
-                    self.executor.data['streams_to_remove'].append(key)
-                    text += f"🚫 {value['info']} (Removed)\n"
-                elif codec_type == 'video' or is_metadata:
-                    text += f"{value['info']}\n"
-                elif codec_type == 'audio':
-                    if has_telugu and self._is_language_match(lang, telugu_tags):
-                        text += f"{value['info']}\n"
-                    elif has_telugu:
-                        self.executor.data['streams_to_remove'].append(key)
-                        text += f"🚫 {value['info']} (Removed)\n"
-                    elif has_hindi and self._is_language_match(lang, hindi_tags):
-                        text += f"{value['info']}\n"
-                    elif has_hindi:
-                        self.executor.data['streams_to_remove'].append(key)
-                        text += f"🚫 {value['info']} (Removed)\n"
-                    elif self._is_language_match(lang, always_remove):
-                        self.executor.data['streams_to_remove'].append(key)
-                        text += f"🚫 {value['info']} (Removed)\n"
+        for key, stream in streams_dict.items():
+            codec_type = stream.get('codec_type', 'unknown')
+
+            if codec_type == 'video':
+                kept_video.append(f"  └ {stream['details']}")
+            elif stream.get('disposition', {}).get('attached_pic'):
+                kept_attachments.append(f"  └ {stream['details']}")
+            elif codec_type == 'subtitle':
+                self.executor.data['streams_to_remove'].append(key)
+                removed_subtitle.append(f"  └ {stream['details']}")
+            elif codec_type == 'audio':
+                lang = stream.get('tags', {}).get('language', '')
+                if has_telugu:
+                    if self._is_language_match(lang, telugu_tags):
+                        kept_audio.append(f"  └ {stream['details']}")
                     else:
-                        text += f"{value['info']}\n"
+                        self.executor.data['streams_to_remove'].append(key)
+                        removed_audio.append(f"  └ {stream['details']}")
+                elif has_hindi:
+                    if self._is_language_match(lang, hindi_tags):
+                        kept_audio.append(f"  └ {stream['details']}")
+                    else:
+                        self.executor.data['streams_to_remove'].append(key)
+                        removed_audio.append(f"  └ {stream['details']}")
+                else:
+                    kept_audio.append(f"  └ {stream['details']}")
 
-            if self.executor.data['streams_to_remove']:
-                text += '\n<b>Removed Streams:</b>\n'
-                for i, key in enumerate(self.executor.data['streams_to_remove'], start=1):
-                    text += f"{i}. {self.executor.data['streams'][key]['info']}\n"
+        # Build the message
+        msg = "🎬 **Analyzing Streams**\n"
+        msg += "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬\n"
+        msg += f"**File:** `{self.executor.name}`\n\n"
 
-        LOGGER.info(f"Prepared streams_select text for {self.executor.mode}")
-        return text
+        msg += "**✅ Tracks to Keep:**\n"
+        msg += "- - - - - - - - - - - - - - - - -\n"
+        if kept_video:
+            msg += "**📹 Video:**\n" + "\n".join(kept_video) + "\n"
+        if kept_attachments:
+            msg += "**🖼️ Attachment:**\n" + "\n".join(kept_attachments) + "\n"
+        if kept_audio:
+            msg += "**🔊 Audio:**\n" + "\n".join(kept_audio) + "\n"
 
-    async def get_buttons(self, *args):
-        LOGGER.info(f"Starting get_buttons for {self.executor.mode}")
-        message_text = await self.streams_select(*args)
-        await self._send_message(message_text)
-        if self._reply:
-            await deleteMessage(self._reply)
+        msg += "\n**🚫 Tracks to Remove:**\n"
+        msg += "- - - - - - - - - - - - - - - - -\n"
+        if removed_audio:
+            msg += "**🔊 Audio:**\n" + "\n".join(removed_audio) + "\n"
+        if removed_subtitle:
+            msg += "**📖 Subtitle:**\n" + "\n".join(removed_subtitle) + "\n"
 
-        if self.is_cancelled:
-            self._listener.suproc = 'cancelled'
-            await self._listener.onUploadError(f'{VID_MODE[self.executor.mode]} stopped due to error!')
-        else:
-            LOGGER.info(f"Selections completed: {self.executor.data}")
-            self.executor.event.set()
+        msg += "▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬▬"
+
+        self.executor.event.set()
+        return msg
