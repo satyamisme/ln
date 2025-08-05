@@ -106,6 +106,9 @@ class Config:
                     f"{key} should be {expected_type.__name__}, got invalid string: {value}"
                 ) from e
 
+        if expected_type in [int, float] and value == '':
+            return getattr(cls, key) # Return default value if env var is empty string
+
         try:
             return expected_type(value)
         except (ValueError, TypeError) as exc:
