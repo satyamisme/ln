@@ -1,6 +1,7 @@
-from asyncio import Event
+from asyncio import Event, Lock, sleep
 
 from ... import (
+    bot_loop,
     queued_dl,
     queued_up,
     non_queued_up,
@@ -154,3 +155,28 @@ async def start_from_queued():
             if queued_dl:
                 for mid in list(queued_dl.keys()):
                     await start_dl_from_queued(mid)
+
+
+ffmpeg_queue = {}
+active_ffmpeg = None
+ffmpeg_queue_lock = Lock()
+
+
+async def run_ffmpeg_manager():
+    global active_ffmpeg
+    while True:
+        try:
+            async with ffmpeg_queue_lock:
+                if active_ffmpeg is None and ffmpeg_queue:
+                    mid, (event, task_type, file_details) = next(iter(ffmpeg_queue.items()))
+                    active_ffmpeg = mid
+                    LOGGER.info(f"Starting FFmpeg for MID: {mid}, type: {task_type}")
+                    del ffmpeg_queue[mid]
+                    event.set()
+            await sleep(1)
+        except Exception as e:
+            LOGGER.error(f"FFmpeg manager error: {e}")
+            await sleep(5)
+
+
+bot_loop.create_task(run_ffmpeg_manager())

@@ -2,6 +2,9 @@ from aiofiles.os import path as aiopath, listdir, remove
 from asyncio import sleep, gather
 from html import escape
 from requests import utils as rutils
+from os import path as ospath, walk
+import subprocess
+import math
 
 from ... import (
     intervals,
@@ -40,12 +43,71 @@ from ..mirror_leech_utils.status_utils.queue_status import QueueStatus
 from ..mirror_leech_utils.status_utils.rclone_status import RcloneStatus
 from ..mirror_leech_utils.status_utils.telegram_status import TelegramStatus
 from ..mirror_leech_utils.telegram_uploader import TelegramUploader
+from ..video_utils.executor import VidEcxecutor
 from ..telegram_helper.button_build import ButtonMaker
 from ..telegram_helper.message_utils import (
     send_message,
     delete_status,
     update_status_message,
 )
+
+
+def check_dependencies():
+    for cmd in ['ffmpeg', 'ffprobe']:
+        try:
+            subprocess.run([cmd, '-version'], stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=True)
+        except (subprocess.CalledProcessError, FileNotFoundError):
+            LOGGER.error(f"{cmd} not found. Install FFmpeg and ensure it's in PATH.")
+            return False
+    return True
+
+def get_file_size(file_path):
+    try:
+        return ospath.getsize(file_path)
+    except OSError as e:
+        LOGGER.error(f"Cannot access file {file_path}: {e}")
+        return 0
+
+def get_video_info(file_path):
+    try:
+        cmd = ['ffprobe', '-v', 'error', '-show_entries', 'format=duration', '-of', 'default=noprint_wrappers=1:nokey=1', file_path]
+        result = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, check=True)
+        duration = float(result.stdout.strip())
+        bitrate = int((get_file_size(file_path) * 8) / duration) if duration > 0 else 0
+        return {'duration': duration, 'bitrate': bitrate}
+    except Exception as e:
+        LOGGER.error(f"Error getting video info for {file_path}: {e}")
+        return None
+
+def smart_guess_split(input_file, start_time, target_min, target_max, total_duration, max_iterations=5):
+    bytes_per_second = get_file_size(input_file) / total_duration
+    guess = target_max / bytes_per_second
+    low, high = guess * 0.95, min(total_duration - start_time, guess * 1.05)
+    best_time, best_size = guess, 0
+    for i in range(max_iterations):
+        mid = (low + high) / 2
+        temp_file = ospath.join(ospath.dirname(input_file), f"smart_temp_{i}.mkv")
+        cmd = ['ffmpeg', '-y', '-i', input_file, '-ss', str(start_time), '-t', str(mid), '-c', 'copy', temp_file]
+        try:
+            subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=300)
+            size = get_file_size(temp_file)
+            remove(temp_file)
+            LOGGER.info(f"Smart Iter {i+1}: {mid:.2f}s, {size / (1024*1024*1024):.2f} GB")
+            if 1_931_069_952 <= size <= 2_028_896_563:
+                return mid, size
+            elif size > 2_028_896_563:
+                high = mid
+            elif size < 1_931_069_952:
+                low = mid
+            best_time, best_size = mid, size
+            if high - low < 2.0:
+                break
+        except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as e:
+            LOGGER.error(f"Smart guess failed: {e}")
+            if ospath.exists(temp_file):
+                aioremove(temp_file)
+            return None, None
+    return best_time if 1_931_069_952 <= best_size <= 2_028_896_563 else None, best_size
 
 
 class TaskListener(TaskConfig):
@@ -259,11 +321,14 @@ class TaskListener(TaskConfig):
         self.name = up_path.replace(f"{up_dir}/", "").split("/", 1)[0]
         self.size = await get_path_size(up_dir)
 
+        o_files = []
+        m_size = []
         if self.is_leech and not self.compress:
-            await self.proceed_split(up_path, gid)
+            is_split = await self.proceedSplit(up_dir, m_size, o_files, self.size, gid)
             if self.is_cancelled:
                 return
-            self.clear()
+            if is_split:
+                self.clear()
 
         self.subproc = None
 
@@ -287,7 +352,7 @@ class TaskListener(TaskConfig):
                 task_dict[self.mid] = TelegramStatus(self, tg, gid, "up")
             await gather(
                 update_status_message(self.message.chat.id),
-                tg.upload(),
+                tg.upload(o_files, m_size),
             )
             del tg
         elif is_gdrive_id(self.up_dest):
@@ -311,6 +376,74 @@ class TaskListener(TaskConfig):
             )
             del RCTransfer
         return
+
+    async def proceedSplit(self, up_dir, m_size, o_files, size, gid):
+        if not self.is_leech or not await aiopath.isdir(up_dir):
+            return True
+
+        target_min_bytes = 1_931_069_952
+        target_max_bytes = 2_028_896_563
+        telegram_limit = 2_097_152_000
+
+        for dirpath, _, files in await sync_to_async(walk, up_dir):
+            for file_ in files:
+                input_file = ospath.join(dirpath, file_)
+                if not await aiopath.exists(input_file) or file_.endswith(('.aria2', '.!qB')):
+                    continue
+
+                file_size = get_file_size(input_file)
+                if file_size <= target_max_bytes:
+                    o_files.append(ospath.basename(input_file))
+                    m_size.append(file_size)
+                    continue
+
+                video_info = get_video_info(input_file)
+                if not video_info:
+                    await self.on_upload_error("Failed to get video info.")
+                    return False
+
+                num_parts = math.ceil(file_size / target_max_bytes)
+                start_time = 0
+                parts = []
+                base_name = ospath.splitext(file_)[0]
+
+                for i in range(num_parts):
+                    part_num = i + 1
+                    is_last_part = (i == num_parts - 1)
+                    part_file = ospath.join(self.dir, f"{base_name}.part{part_num}.mkv")
+
+                    if not is_last_part:
+                        split_duration, split_size = smart_guess_split(input_file, start_time, target_min_bytes, target_max_bytes, video_info['duration'])
+                        if split_duration is None:
+                            await self.on_upload_error(f"Failed to split part {part_num}.")
+                            return False
+                        cmd = ['ffmpeg', '-y', '-i', input_file, '-ss', str(start_time), '-t', str(split_duration), '-c', 'copy', part_file]
+                        try:
+                            subprocess.run(cmd, capture_output=True, text=True, check=True)
+                            part_size = get_file_size(part_file)
+                            if not (target_min_bytes <= part_size <= target_max_bytes):
+                                await self.on_upload_error(f"Part {part_num} size out of range.")
+                                return False
+                            parts.append(part_file)
+                            start_time += split_duration
+                        except subprocess.CalledProcessError as e:
+                            LOGGER.error(f"Split error: {e}")
+                            return False
+                    else:
+                        cmd = ['ffmpeg', '-y', '-i', input_file, '-ss', str(start_time), '-c', 'copy', part_file]
+                        subprocess.run(cmd, capture_output=True, text=True, check=True)
+                        part_size = get_file_size(part_file)
+                        if part_size > telegram_limit:
+                            await self.on_upload_error(f"Last part exceeds Telegram limit.")
+                            return False
+                        parts.append(part_file)
+
+                for part in parts:
+                    o_files.append(ospath.basename(part))
+                    m_size.append(get_file_size(part))
+                await remove(input_file)
+
+        return True
 
     async def on_upload_complete(
         self, link, files, folders, mime_type, rclone_path="", dir_id=""
