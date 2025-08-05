@@ -26,9 +26,9 @@ python-magic
 requests
 telegraph
 tenacity
-tgcrypto
+pytgcrypto
 urllib3
 uvicorn
 uvloop; sys_platform != "win32"
-xattr
+xattr; sys_platform != "win32"
 yt-dlp[default,curl-cffi]
