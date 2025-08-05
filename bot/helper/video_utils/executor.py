@@ -3,7 +3,7 @@ from aiofiles import open as aiopen
 from aiofiles.os import path as aiopath, makedirs
 from aioshutil import rmtree
 from ast import literal_eval
-from asyncio import create_subprocess_exec, gather, Event, wait_for
+from asyncio import create_subprocess_exec, gather, Event, wait_for, TimeoutError as AsyncTimeoutError
 from asyncio.subprocess import PIPE
 import re
 from natsort import natsorted
@@ -12,6 +12,7 @@ from time import time
 
 from bot import task_dict, task_dict_lock, LOGGER, VID_MODE, FFMPEG_NAME
 from bot.helper.ext_utils.bot_utils import sync_to_async, cmd_exec, new_task
+from bot.helper.ext_utils.task_manager import ffmpeg_queue, ffmpeg_queue_lock, active_ffmpeg
 from bot.helper.ext_utils.files_utils import get_path_size, clean_target
 from bot.helper.ext_utils.media_utils import get_document_type, FFProgress
 from bot.helper.listeners import tasks_listener as task
@@ -121,9 +122,9 @@ class VidEcxecutor(FFProgress):
     async def execute(self):
         self._is_dir = await aiopath.isdir(self.path)
         try:
-            self.mode, self.name, kwargs = self.listener.vidMode
-        except AttributeError as e:
-            LOGGER.error(f"Invalid vidMode: {e}")
+            self.mode, self.name, kwargs = self.listener.vid_mode
+        except (AttributeError, ValueError) as e:
+            LOGGER.error(f"Invalid vid_mode: {e}")
             await self._cleanup()
             await self.listener.onUploadError("Invalid video mode configuration.")
             return None
@@ -134,19 +135,37 @@ class VidEcxecutor(FFProgress):
             await self._cleanup()
             return None
 
+        event = Event()
+        async with ffmpeg_queue_lock:
+            ffmpeg_queue[self.listener.mid] = (event, self.mode, file_list)
+
         try:
-            await self._process_files(file_list)
-            return self.outfile
-        except OSError as e:
-            if e.errno == 28:
-                LOGGER.error("Disk space full.")
-                await self.listener.onUploadError("Not enough disk space to process videos.")
-            else:
-                LOGGER.error(f"OS Error during video processing: {e}")
-                await self.listener.onUploadError(f"An OS error occurred: {e}")
+            await wait_for(event.wait(), timeout=600)
+        except AsyncTimeoutError:
+            LOGGER.error(f"FFmpeg queue timeout for MID: {self.listener.mid}")
+            async with ffmpeg_queue_lock:
+                ffmpeg_queue.pop(self.listener.mid, None)
+            await self._cleanup()
+            await self.listener.onUploadError("FFmpeg processing timed out.")
+            return None
+
+        try:
+            result = await self._process_files(file_list)
+            if self.is_cancelled or not result:
+                await self._cleanup()
+                await self.listener.onUploadError(f"{self.mode} processing failed.")
+                return None
+            return result
         except Exception as e:
-            LOGGER.error(f"An unexpected error occurred during video processing: {e}")
-            await self.listener.onUploadError(f"An unexpected error occurred: {e}")
+            LOGGER.error(f"Execution error in {self.mode} for MID: {self.listener.mid}: {e}")
+            await self._cleanup()
+            await self.listener.onUploadError(f"Failed to process {self.mode}.")
+            return None
+        finally:
+            global active_ffmpeg
+            async with ffmpeg_queue_lock:
+                if active_ffmpeg == self.listener.mid:
+                    active_ffmpeg = None
 
     async def _process_files(self, file_list):
         if self.mode == 'merge_rmaudio':
