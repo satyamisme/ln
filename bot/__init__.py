@@ -53,6 +53,7 @@ queued_dl = {}
 queued_up = {}
 status_dict = {}
 task_dict = {}
+VID_MODE = {'merge_rmaudio': 'Merge/Remove Audio'}
 rss_dict = {}
 auth_chats = {}
 excluded_extensions = ["aria2", "!qB"]
