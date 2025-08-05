@@ -1,6 +1,9 @@
-from uvloop import install
+from sys import platform
 
-install()
+if platform != "win32":
+    from uvloop import install
+
+    install()
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse

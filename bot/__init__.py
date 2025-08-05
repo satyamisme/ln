@@ -1,6 +1,9 @@
-from uvloop import install
+from sys import platform
 
-install()
+if platform != "win32":
+    from uvloop import install
+
+    install()
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from asyncio import Lock, new_event_loop, set_event_loop
 from logging import (
