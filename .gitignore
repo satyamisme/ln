@@ -14,3 +14,15 @@ list_drives.txt
 cookies.txt
 downloads/*
 *.session
+__pycache__/
+*.py[cod]
+*.so
+.idea/
+.vscode/
+venv/
+*.log
+credentials.json
+config.env
+enhancements.md
+changes.md
+start.bat
