@@ -15,7 +15,7 @@ from bot.helper.ext_utils.bot_utils import sync_to_async, cmd_exec, new_task
 from bot.helper.ext_utils.task_manager import ffmpeg_queue, ffmpeg_queue_lock, active_ffmpeg
 from bot.helper.ext_utils.files_utils import get_path_size, clean_target
 from bot.helper.ext_utils.media_utils import get_document_type, FFProgress
-from bot.helper.listeners import tasks_listener as task
+from bot.helper.listeners import task_listener as task
 from bot.helper.mirror_utils.status_utils.ffmpeg_status import FFMpegStatus
 from bot.helper.telegram_helper.message_utils import sendStatusMessage, sendMessage
 
