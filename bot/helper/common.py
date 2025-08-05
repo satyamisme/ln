@@ -121,6 +121,7 @@ class TaskConfig:
         self.excluded_extensions = []
         self.files_to_proceed = []
         self.is_super_chat = self.message.chat.type.name in ["SUPERGROUP", "CHANNEL"]
+        self.vid_mode = False
 
     def get_token_path(self, dest):
         if dest.startswith("mtp:"):
