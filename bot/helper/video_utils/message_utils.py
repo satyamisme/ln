@@ -11,8 +11,9 @@ from bot.helper.ext_utils.bot_utils import setInterval, sync_to_async
 from bot.helper.ext_utils.db_handler import DbManager
 from bot.helper.ext_utils.exceptions import TgLinkException
 from bot.helper.ext_utils.files_utils import clean_target, downlod_content
-from bot.helper.ext_utils.status_utils import get_readable_message
+from bot.helper.ext_utils.status_utils import get_readable_message, get_readable_file_size, get_readable_time
 from bot.helper.telegram_helper.bot_commands import BotCommands
+from bot.helper.telegram_helper.button_build import ButtonMaker
 
 
 class Limits:
@@ -278,3 +279,31 @@ async def sendStatusMessage(msg, user_id=0):
                                 'is_user': is_user}
     if not Intervals['status'].get(sid):
         Intervals['status'][sid] = setInterval(config_dict['STATUS_UPDATE_INTERVAL'], update_status_message, sid)
+
+
+async def format_vid_complete_message(listener, path, result):
+    buttons = ButtonMaker()
+    size = get_readable_file_size(result.get("size", 0))
+    elapsed = get_readable_time(time() - listener.message.date.timestamp())
+
+    msg = f"🎉 **Task Completed by {listener.tag}**\n\n"
+    msg += f"📽️ **Name:** `{result.get('name', 'N/A')}`\n"
+    msg += f"📏 **Size:** {size}\n"
+    msg += f"⏱️ **Elapsed:** {elapsed}\n\n"
+
+    video_streams = result.get('video_streams', [])
+    audio_streams = result.get('audio_streams', [])
+
+    if video_streams:
+        msg += "**🎥 Video Stream:**\n"
+        for v_stream in video_streams:
+            msg += f"  └ {v_stream}\n"
+
+    if audio_streams:
+        msg += "**🔊 Audio Kept:**\n"
+        for a_stream in audio_streams:
+            msg += f"  └ {a_stream}\n"
+
+    buttons.button_link("🔗 Download", result.get("link"))
+
+    return msg, buttons.build_menu(1)
