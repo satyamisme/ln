@@ -149,6 +149,17 @@ programming in Python.
 </details>
 
 <details>
+  <summary><h5>Video Tools</h5></summary>
+
+- **Intelligent Batch Processing:** Automatically merge compatible video files from a torrent or zip.
+- **Advanced Error Handling:** The bot can handle interruptions in compatibility (e.g., different video codecs, missing audio tracks) by processing files in smaller batches or individually.
+- **Dynamic UI:** All video tasks use a single, editable status message that updates through all stages of the process (Extracting, Analyzing, Processing, Uploading).
+- **Detailed Stream Analysis:** A new "Analyzing Streams" card provides a user-friendly view of which tracks will be kept or removed, including metadata like resolution, bitrate, and channel layout.
+- **Enhanced Stream Selection:** New logic to keep all audio tracks of a priority language (e.g., Telugu) if present, and to always preserve embedded attachments like cover art.
+
+</details>
+
+<details>
   <summary><h5>Archives</h5></summary>
 
 - Extract splits with or without password
@@ -246,6 +257,11 @@ sudo pacman -S docker python
 ```
 pip3 install -r requirements-cli.txt
 ```
+
+- For Windows:
+
+  - It is recommended to use a virtual environment. The provided `start.bat` script will handle this for you.
+  - Simply run the `start.bat` file by double-clicking it. It will create a virtual environment, install the requirements, and start the bot.
 
 ------
 
