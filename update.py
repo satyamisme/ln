@@ -11,6 +11,7 @@ from logging import (
     ERROR,
 )
 from os import path, remove, getenv
+from dotenv import load_dotenv
 from pymongo.mongo_client import MongoClient
 from pymongo.server_api import ServerApi
 from subprocess import run as srun
@@ -51,6 +52,7 @@ def load_config() -> Dict[str, Any]:
 
 
 # Load configuration
+load_dotenv('config.env')
 config_file = load_config()
 
 # Validate BOT_TOKEN

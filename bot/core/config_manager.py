@@ -213,7 +213,7 @@ class Config:
 
     @classmethod
     def load(cls) -> None:
-        load_dotenv()
+        load_dotenv('config.env')
         if not cls._load_from_module():
             LOGGER.info(
                 "Config module not found, loading from environment variables..."

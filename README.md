@@ -270,10 +270,10 @@ pip3 install -r requirements-cli.txt
 <details>
   <summary><h5>2. Setting up config file</h5></summary>
 
-It is recommended to use an `.env` file to set your configuration variables.
+It is recommended to use a `config.env` file to set your configuration variables.
 
-- Rename `.env.sample` to `.env`.
-- Open the `.env` file and fill in your details.
+- Rename `config.env.sample` to `config.env`.
+- Open the `config.env` file and fill in your details.
 
 The bot will automatically load the variables from this file.
 
@@ -503,8 +503,9 @@ sudo docker build . -t mltb
 - Run the image:
 
 ```
-sudo docker run --network host mltb
+sudo docker run --env-file config.env --network host mltb
 ```
+**Note:** For Docker, you must pass your configuration variables using an environment file. Create a file named `config.env` (you can copy `config.env.sample`) and use the `--env-file config.env` flag as shown above.
 
 - To stop the running image:
 

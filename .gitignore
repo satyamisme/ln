@@ -14,7 +14,7 @@ list_drives.txt
 cookies.txt
 downloads/*
 *.session
-.env
+config.env
 __pycache__/
 *.py[cod]
 *.so
