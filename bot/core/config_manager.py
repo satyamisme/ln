@@ -2,6 +2,7 @@ from importlib import import_module
 from ast import literal_eval
 from os import getenv
 from dotenv import load_dotenv
+import json
 
 from bot import LOGGER
 
@@ -95,15 +96,15 @@ class Config:
                 return expected_type()
 
             try:
-                evaluated = literal_eval(value)
+                evaluated = json.loads(value)
                 if not isinstance(evaluated, expected_type):
                     raise TypeError(
                         f"Expected {expected_type.__name__}, got {type(evaluated).__name__}"
                     )
                 return evaluated
-            except (ValueError, SyntaxError, TypeError) as e:
+            except json.JSONDecodeError as e:
                 raise TypeError(
-                    f"{key} should be {expected_type.__name__}, got invalid string: {value}"
+                    f"{key} should be a valid JSON {expected_type.__name__}, got invalid string: {value}"
                 ) from e
 
         if expected_type in [int, float] and value == '':
