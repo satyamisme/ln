@@ -1,6 +1,7 @@
 from importlib import import_module
 from ast import literal_eval
 from os import getenv
+from dotenv import load_dotenv
 
 from bot import LOGGER
 
@@ -212,6 +213,7 @@ class Config:
 
     @classmethod
     def load(cls) -> None:
+        load_dotenv()
         if not cls._load_from_module():
             LOGGER.info(
                 "Config module not found, loading from environment variables..."

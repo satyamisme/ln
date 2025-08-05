@@ -270,6 +270,14 @@ pip3 install -r requirements-cli.txt
 <details>
   <summary><h5>2. Setting up config file</h5></summary>
 
+It is recommended to use an `.env` file to set your configuration variables.
+
+- Rename `.env.sample` to `.env`.
+- Open the `.env` file and fill in your details.
+
+The bot will automatically load the variables from this file.
+
+Alternatively, you can use a `config.py` file:
 ```
 cp config_sample.py config.py
 ```
