@@ -3,7 +3,7 @@ from aiofiles import open as aiopen
 from aiofiles.os import path as aiopath, makedirs
 from aioshutil import rmtree
 from ast import literal_eval
-from asyncio import create_subprocess_exec, gather, Event, wait_for, TimeoutError as AsyncTimeoutError
+from asyncio import create_subprocess_exec, gather, Event, wait_for
 from asyncio.subprocess import PIPE
 import re
 from natsort import natsorted
@@ -12,12 +12,11 @@ from time import time
 
 from bot import task_dict, task_dict_lock, LOGGER, VID_MODE, FFMPEG_NAME
 from bot.helper.ext_utils.bot_utils import sync_to_async, cmd_exec, new_task
-from bot.helper.ext_utils.task_manager import ffmpeg_queue, ffmpeg_queue_lock, active_ffmpeg
 from bot.helper.ext_utils.files_utils import get_path_size, clean_target
 from bot.helper.ext_utils.media_utils import get_document_type, FFProgress
-from bot.helper.listeners import task_listener as task
-from bot.helper.mirror_leech_utils.status_utils.ffmpeg_status import FFmpegStatus
-from bot.helper.telegram_helper.message_utils import send_status_message, send_message
+from bot.helper.listeners import tasks_listener as task
+from bot.helper.mirror_utils.status_utils.ffmpeg_status import FFMpegStatus
+from bot.helper.telegram_helper.message_utils import sendStatusMessage, sendMessage
 
 async def get_metavideo(video_file):
     try:
@@ -122,50 +121,32 @@ class VidEcxecutor(FFProgress):
     async def execute(self):
         self._is_dir = await aiopath.isdir(self.path)
         try:
-            self.mode, self.name, kwargs = self.listener.vid_mode
-        except (AttributeError, ValueError) as e:
-            LOGGER.error(f"Invalid vid_mode: {e}")
+            self.mode, self.name, kwargs = self.listener.vidMode
+        except AttributeError as e:
+            LOGGER.error(f"Invalid vidMode: {e}")
             await self._cleanup()
             await self.listener.onUploadError("Invalid video mode configuration.")
             return None
 
         file_list = await self._get_files()
         if not file_list:
-            await send_message("No valid video files found.", self.listener.message)
+            await sendMessage("No valid video files found.", self.listener.message)
             await self._cleanup()
             return None
 
-        event = Event()
-        async with ffmpeg_queue_lock:
-            ffmpeg_queue[self.listener.mid] = (event, self.mode, file_list)
-
         try:
-            await wait_for(event.wait(), timeout=600)
-        except AsyncTimeoutError:
-            LOGGER.error(f"FFmpeg queue timeout for MID: {self.listener.mid}")
-            async with ffmpeg_queue_lock:
-                ffmpeg_queue.pop(self.listener.mid, None)
-            await self._cleanup()
-            await self.listener.onUploadError("FFmpeg processing timed out.")
-            return None
-
-        try:
-            result = await self._process_files(file_list)
-            if self.is_cancelled or not result:
-                await self._cleanup()
-                await self.listener.onUploadError(f"{self.mode} processing failed.")
-                return None
-            return result
+            await self._process_files(file_list)
+            return self.outfile
+        except OSError as e:
+            if e.errno == 28:
+                LOGGER.error("Disk space full.")
+                await self.listener.onUploadError("Not enough disk space to process videos.")
+            else:
+                LOGGER.error(f"OS Error during video processing: {e}")
+                await self.listener.onUploadError(f"An OS error occurred: {e}")
         except Exception as e:
-            LOGGER.error(f"Execution error in {self.mode} for MID: {self.listener.mid}: {e}")
-            await self._cleanup()
-            await self.listener.onUploadError(f"Failed to process {self.mode}.")
-            return None
-        finally:
-            global active_ffmpeg
-            async with ffmpeg_queue_lock:
-                if active_ffmpeg == self.listener.mid:
-                    active_ffmpeg = None
+            LOGGER.error(f"An unexpected error occurred during video processing: {e}")
+            await self.listener.onUploadError(f"An unexpected error occurred: {e}")
 
     async def _process_files(self, file_list):
         if self.mode == 'merge_rmaudio':
@@ -228,7 +209,7 @@ class VidEcxecutor(FFProgress):
         # This can be expanded later to handle complex logic for all files in a batch
         streams = await get_metavideo(batch[0])
         if not streams:
-            await send_message(f"Could not process batch starting with {ospath.basename(batch[0])} due to metadata error.", self.listener.message)
+            await sendMessage(f"Could not process batch starting with {ospath.basename(batch[0])} due to metadata error.", self.listener.message)
             return
 
         self.data = {} # Reset data for each batch
@@ -236,7 +217,7 @@ class VidEcxecutor(FFProgress):
         analysis_message = await selector.streams_select(streams)
 
         if not self.status_message:
-            self.status_message = await send_message(analysis_message, self.listener.message)
+            self.status_message = await sendMessage(analysis_message, self.listener.message)
         else:
             await editMessage(analysis_message, self.status_message)
 
@@ -339,7 +320,7 @@ class VidEcxecutor(FFProgress):
         streams = await get_metavideo(file_list[0])
         if not streams:
             LOGGER.error(f"No streams found in {file_list[0]}")
-            await send_message("No streams found in the video file.", self.listener.message)
+            await sendMessage("No streams found in the video file.", self.listener.message)
             return None
 
         base_dir = await self._name_base_dir(file_list[0], 'Merge-RemoveAudio', multi=len(file_list) > 1)
@@ -371,12 +352,12 @@ class VidEcxecutor(FFProgress):
             cmd.extend(['-c', 'copy', self.outfile, '-y'])
 
             if not await self._run_cmd(cmd, 'direct'):
-                await send_message("Merging failed due to FFmpeg error.", self.listener.message)
+                await sendMessage("Merging failed due to FFmpeg error.", self.listener.message)
                 return None
             return await self._final_path()
         except Exception as e:
             LOGGER.error(f"Error in _merge_and_rmaudio: {e}", exc_info=True)
-            await send_message("Processing failed.", self.listener.message)
+            await sendMessage("Processing failed.", self.listener.message)
             return None
         finally:
             if len(file_list) > 1:

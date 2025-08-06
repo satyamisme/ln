@@ -214,15 +214,21 @@ class TelegramUploader:
                 self._msgs_dict[m.link] = m.caption
         self._sent_msg = msgs_list[-1]
 
-    async def upload(self, o_files=None, m_size=None):
+    async def upload(self):
         await self._user_settings()
         res = await self._msg_to_reply()
         if not res:
             return
-        if o_files:
-            for file_ in o_files:
+        for dirpath, _, files in natsorted(await sync_to_async(walk, self._path)):
+            if dirpath.strip().endswith("/yt-dlp-thumb"):
+                continue
+            if dirpath.strip().endswith("_mltbss"):
+                await self._send_screenshots(dirpath, files)
+                await rmtree(dirpath, ignore_errors=True)
+                continue
+            for file_ in natsorted(files):
                 self._error = ""
-                self._up_path = f_path = ospath.join(self._path, file_)
+                self._up_path = f_path = ospath.join(dirpath, file_)
                 if not await aiopath.exists(self._up_path):
                     LOGGER.error(f"{self._up_path} not exists! Continue uploading!")
                     continue
@@ -237,7 +243,7 @@ class TelegramUploader:
                         continue
                     if self._listener.is_cancelled:
                         return
-                    cap_mono = await self._prepare_file(file_, self._path)
+                    cap_mono = await self._prepare_file(file_, dirpath)
                     if self._last_msg_in_group:
                         group_lists = [
                             x for v in self._media_dict.values() for x in v.keys()
@@ -287,81 +293,6 @@ class TelegramUploader:
                     self._up_path
                 ):
                     await remove(self._up_path)
-        else:
-            for dirpath, _, files in natsorted(await sync_to_async(walk, self._path)):
-                if dirpath.strip().endswith("/yt-dlp-thumb"):
-                    continue
-                if dirpath.strip().endswith("_mltbss"):
-                    await self._send_screenshots(dirpath, files)
-                    await rmtree(dirpath, ignore_errors=True)
-                    continue
-                for file_ in natsorted(files):
-                    self._error = ""
-                    self._up_path = f_path = ospath.join(dirpath, file_)
-                    if not await aiopath.exists(self._up_path):
-                        LOGGER.error(f"{self._up_path} not exists! Continue uploading!")
-                        continue
-                    try:
-                        f_size = await aiopath.getsize(self._up_path)
-                        self._total_files += 1
-                        if f_size == 0:
-                            LOGGER.error(
-                                f"{self._up_path} size is zero, telegram don't upload zero size files"
-                            )
-                            self._corrupted += 1
-                            continue
-                        if self._listener.is_cancelled:
-                            return
-                        cap_mono = await self._prepare_file(file_, dirpath)
-                        if self._last_msg_in_group:
-                            group_lists = [
-                                x for v in self._media_dict.values() for x in v.keys()
-                            ]
-                            match = re_match(r".+(?=\.0*\d+$)|.+(?=\.part\d+\..+$)", f_path)
-                            if not match or match and match.group(0) not in group_lists:
-                                for key, value in list(self._media_dict.items()):
-                                    for subkey, msgs in list(value.items()):
-                                        if len(msgs) > 1:
-                                            await self._send_media_group(subkey, key, msgs)
-                        if self._listener.hybrid_leech and self._listener.user_transmission:
-                            self._user_session = f_size > 2097152000
-                            if self._user_session:
-                                self._sent_msg = await TgClient.user.get_messages(
-                                    chat_id=self._sent_msg.chat.id,
-                                    message_ids=self._sent_msg.id,
-                                )
-                            else:
-                                self._sent_msg = await self._listener.client.get_messages(
-                                    chat_id=self._sent_msg.chat.id,
-                                    message_ids=self._sent_msg.id,
-                                )
-                        self._last_msg_in_group = False
-                        self._last_uploaded = 0
-                        await self._upload_file(cap_mono, file_, f_path)
-                        if self._listener.is_cancelled:
-                            return
-                        if (
-                            not self._is_corrupted
-                            and (self._listener.is_super_chat or self._listener.up_dest)
-                            and not self._is_private
-                        ):
-                            self._msgs_dict[self._sent_msg.link] = file_
-                        await sleep(1)
-                    except Exception as err:
-                        if isinstance(err, RetryError):
-                            LOGGER.info(
-                                f"Total Attempts: {err.last_attempt.attempt_number}"
-                            )
-                            err = err.last_attempt.exception()
-                        LOGGER.error(f"{err}. Path: {self._up_path}")
-                        self._error = str(err)
-                        self._corrupted += 1
-                        if self._listener.is_cancelled:
-                            return
-                    if not self._listener.is_cancelled and await aiopath.exists(
-                        self._up_path
-                    ):
-                        await remove(self._up_path)
         for key, value in list(self._media_dict.items()):
             for subkey, msgs in list(value.items()):
                 if len(msgs) > 1:

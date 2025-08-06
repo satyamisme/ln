@@ -2,8 +2,8 @@ from __future__ import annotations
 from time import time
 
 from bot import VID_MODE, LOGGER
-from bot.helper.listeners import tasks_listener as task
-from bot.helper.telegram_helper.message_utils import sendMessage, deleteMessage
+from bot.helper.listeners import task_listener as task
+from bot.helper.telegram_helper.message_utils import send_message, delete_message
 
 class SelectMode:
     def __init__(self, listener: task.TaskListener, isLink=False):
@@ -20,7 +20,7 @@ class SelectMode:
     async def _send_message(self, text: str):
         try:
             if not self._reply:
-                self._reply = await sendMessage(text, self.listener.message)
+                self._reply = await send_message(text, self.listener.message)
                 LOGGER.info(f"Sent message for mode confirmation to user {self.listener.user_id}")
         except Exception as e:
             LOGGER.error(f"Failed to send message: {e}")
