@@ -108,6 +108,7 @@ def arg_parser(items, arg_base):
         "-fd",
         "-fu",
         "-sync",
+        "-vt",
         "-hl",
         "-doc",
         "-med",
