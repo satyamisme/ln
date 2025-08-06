@@ -756,7 +756,7 @@ class MyJdApi:
             response = res.json()
         except JSONDecodeError as exc:
             raise MYJDDecodeException(
-                "Failed to decode response: {}", response
+                f"Failed to decode response: {res.text}"
             ) from exc
         if res.status_code != 200:
             msg = (

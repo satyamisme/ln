@@ -8,13 +8,13 @@ from asyncio import (
 )
 from asyncio.subprocess import PIPE
 from os import path as ospath
-from re import search as re_search, escape
+from re import search as re_search, escape, split as re_split, findall as re_findall
 from time import time
 from aioshutil import rmtree
 
 from ... import LOGGER, cpu_no, DOWNLOAD_DIR
 from .bot_utils import cmd_exec, sync_to_async
-from .files_utils import get_mime_type, is_archive, is_archive_split
+from .files_utils import get_mime_type, is_archive, is_archive_split, get_path_size
 from .status_utils import time_to_seconds
 
 
@@ -628,6 +628,62 @@ class FFMpeg:
             if await aiopath.exists(output_file):
                 await remove(output_file)
             return False
+
+
+class FFProgress:
+    def __init__(self):
+        self.is_cancel = False
+        self._duration = 0
+        self._start_time = time()
+        self._eta = 0
+        self._percentage = '0%'
+        self._processed_bytes = 0
+
+    @property
+    def processed_bytes(self):
+        return self._processed_bytes
+
+    @property
+    def percentage(self):
+        return self._percentage
+
+    @property
+    def eta(self):
+        return self._eta
+
+    @property
+    def speed(self):
+        return self._processed_bytes / (time() - self._start_time)
+
+    async def readlines(self, stream):
+        data = bytearray()
+        while not stream.at_eof():
+            lines = re_split(br'[\r\n]+', data)
+            data[:] = lines.pop(-1)
+            for line in lines:
+                yield line
+            data.extend(await stream.read(1024))
+
+    async def progress(self, status: str=''):
+        start_time = time()
+        async for line in self.readlines(self.listener.suproc.stderr):
+            if self.is_cancel or self.listener.suproc == 'cancelled' or self.listener.suproc.returncode is not None:
+                return
+            if status == 'direct':
+                self._processed_bytes = await get_path_size(self.outfile)
+                await sleep(0.5)
+                continue
+            if progress := dict(re_findall(r'(frame|fps|size|time|bitrate|speed)\s*\=\s*(\S+)', line.decode('utf-8'))):
+                if not self._duration:
+                    self._duration = (await get_media_info(self.path))[0]
+                hh, mm, sms = progress['time'].split(':')
+                time_to_second = (int(hh) * 3600) + (int(mm) * 60) + float(sms)
+                self._processed_bytes = int(progress['size'].rstrip('kB')) * 1024
+                self._percentage = f'{round((time_to_second / self._duration) * 100, 2)}%'
+                try:
+                    self._eta = (self._duration / float(progress['speed'].strip('x'))) - ((time() - start_time))
+                except:
+                    pass
 
     async def split(self, f_path, file_, parts, split_size):
         self.clear()

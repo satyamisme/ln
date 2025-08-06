@@ -39,6 +39,7 @@ from ..helper.mirror_leech_utils.download_utils.telegram_download import (
     TelegramDownloadHelper,
 )
 from ..helper.telegram_helper.message_utils import send_message, get_tg_link_message
+from ..helper.video_utils.selector import SelectMode
 
 
 class Mirror(TaskListener):
@@ -113,7 +114,11 @@ class Mirror(TaskListener):
 
         arg_parser(input_list[1:], args)
 
-        self.vid_mode = args["-vt"]
+        self.vid_mode = None
+        if args["-vt"]:
+            self.vid_mode = await SelectMode(self).get_buttons()
+            if not self.vid_mode:
+                return
         self.select = args["-s"]
         self.seed = args["-d"]
         self.name = args["-n"]

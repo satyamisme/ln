@@ -14,9 +14,9 @@ from bot import task_dict, task_dict_lock, LOGGER, VID_MODE, FFMPEG_NAME
 from bot.helper.ext_utils.bot_utils import sync_to_async, cmd_exec, new_task
 from bot.helper.ext_utils.files_utils import get_path_size, clean_target
 from bot.helper.ext_utils.media_utils import get_document_type, FFProgress
-from bot.helper.listeners import tasks_listener as task
-from bot.helper.mirror_utils.status_utils.ffmpeg_status import FFMpegStatus
-from bot.helper.telegram_helper.message_utils import sendStatusMessage, sendMessage
+from bot.helper.listeners import task_listener as task
+from bot.helper.mirror_leech_utils.status_utils.ffmpeg_status import FFmpegStatus
+from bot.helper.telegram_helper.message_utils import send_message, edit_message
 
 async def get_metavideo(video_file):
     try:
@@ -130,7 +130,7 @@ class VidEcxecutor(FFProgress):
 
         file_list = await self._get_files()
         if not file_list:
-            await sendMessage("No valid video files found.", self.listener.message)
+            await send_message("No valid video files found.", self.listener.message)
             await self._cleanup()
             return None
 
@@ -209,7 +209,7 @@ class VidEcxecutor(FFProgress):
         # This can be expanded later to handle complex logic for all files in a batch
         streams = await get_metavideo(batch[0])
         if not streams:
-            await sendMessage(f"Could not process batch starting with {ospath.basename(batch[0])} due to metadata error.", self.listener.message)
+            await send_message(f"Could not process batch starting with {ospath.basename(batch[0])} due to metadata error.", self.listener.message)
             return
 
         self.data = {} # Reset data for each batch
@@ -217,9 +217,9 @@ class VidEcxecutor(FFProgress):
         analysis_message = await selector.streams_select(streams)
 
         if not self.status_message:
-            self.status_message = await sendMessage(analysis_message, self.listener.message)
+            self.status_message = await send_message(analysis_message, self.listener.message)
         else:
-            await editMessage(analysis_message, self.status_message)
+            await edit_message(analysis_message, self.status_message)
 
         await self._start_handler(streams)
         await wait_for(self.event.wait(), timeout=180)
@@ -320,7 +320,7 @@ class VidEcxecutor(FFProgress):
         streams = await get_metavideo(file_list[0])
         if not streams:
             LOGGER.error(f"No streams found in {file_list[0]}")
-            await sendMessage("No streams found in the video file.", self.listener.message)
+            await send_message("No streams found in the video file.", self.listener.message)
             return None
 
         base_dir = await self._name_base_dir(file_list[0], 'Merge-RemoveAudio', multi=len(file_list) > 1)
@@ -352,12 +352,12 @@ class VidEcxecutor(FFProgress):
             cmd.extend(['-c', 'copy', self.outfile, '-y'])
 
             if not await self._run_cmd(cmd, 'direct'):
-                await sendMessage("Merging failed due to FFmpeg error.", self.listener.message)
+                await send_message("Merging failed due to FFmpeg error.", self.listener.message)
                 return None
             return await self._final_path()
         except Exception as e:
             LOGGER.error(f"Error in _merge_and_rmaudio: {e}", exc_info=True)
-            await sendMessage("Processing failed.", self.listener.message)
+            await send_message("Processing failed.", self.listener.message)
             return None
         finally:
             if len(file_list) > 1:
