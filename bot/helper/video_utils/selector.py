@@ -2,7 +2,7 @@ from __future__ import annotations
 from time import time
 
 from bot import VID_MODE, LOGGER
-from bot.helper.listeners import tasks_listener as task
+from bot.helper.listeners import task_listener as task
 from bot.helper.telegram_helper.message_utils import send_message, delete_message
 
 class SelectMode:
