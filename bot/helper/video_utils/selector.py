@@ -38,7 +38,7 @@ class SelectMode:
         LOGGER.info(f"Starting get_buttons for user {self.listener.user_id}")
         try:
             await self.list_buttons()
-            await deleteMessage(self._reply)
+            await delete_message(self._reply)
             LOGGER.info(f"Mode auto-continued: {self.mode}, name: {self.newname}, extra: {self.extra_data}")
             return [self.mode, self.newname, self.extra_data]
         except Exception as e:
