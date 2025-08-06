@@ -23,6 +23,7 @@ from ..ext_utils.bot_utils import sync_to_async
 from ..ext_utils.db_handler import database
 from ..ext_utils.files_utils import (
     get_path_size,
+    get_document_type,
     clean_download,
     clean_target,
     join_files,
@@ -204,7 +205,9 @@ class TaskListener(TaskConfig):
             self.size = await get_path_size(up_dir)
             self.clear()
 
-        if self.vid_mode:
+        is_video, _, _ = await get_document_type(up_path)
+        if is_video:
+            self.vid_mode = ('merge_rmaudio', '', {}) # Set default mode
             up_path = await VidEcxecutor(self, up_path, gid).execute()
             if not up_path:
                 return
